@@ -12,6 +12,8 @@ fn main() {
     let file = std::fs::File::open(&filename).expect("error opening file");
     let mut file = BufReader::new(file);
 
+    // NOTE: using mmap here would be even faster as there will be 0 syscalls for the main
+    // loop involved and no extra buffer allocation. Not doing it to avoid unsafe.
     let mut buf = Vec::<u8>::new();
     let mut db = ClientsDatabase::default();
 
