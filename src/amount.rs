@@ -14,6 +14,7 @@ impl std::fmt::Display for Amount {
         let mut fract = self.0 % PLACES_MOD;
         write!(f, "{whole}")?;
         if fract > 0 {
+            // Strip trailing zeroes.
             while fract % 10 == 0 {
                 fract /= 10;
             }

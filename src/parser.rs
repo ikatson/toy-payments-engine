@@ -13,13 +13,20 @@ pub struct Row {
 impl Row {
     /// Parse a CSV row assuming header "type, client, tx, amount"
     pub fn parse(buf: &[u8]) -> Result<Self, crate::Error> {
-        let mut it = memchr::memchr_iter(b',', buf);
-        let type_end = it.next().ok_or(Error::CsvMissingColumn)?;
-        let client_id_end = it.next().ok_or(Error::CsvMissingColumn)?;
-        let tx_end = it.next().ok_or(Error::CsvMissingColumn)?;
-        let amount_end = it.next().unwrap_or(buf.len());
+        let mut columns =
+            memchr::memchr_iter(b',', buf)
+                .chain(Some(buf.len()))
+                .scan(0usize, |start, end| {
+                    let column = buf[*start..end].trim_ascii();
+                    *start = end + 1;
+                    Some(column)
+                });
+        let ttype = columns.next().ok_or(Error::CsvMissingColumn)?;
+        let client_id = columns.next().ok_or(Error::CsvMissingColumn)?;
+        let tx_id = columns.next().ok_or(Error::CsvMissingColumn)?;
+        let amount = columns.next().ok_or(Error::CsvMissingColumn)?;
 
-        let ttype = match buf[..type_end].trim_ascii() {
+        let ttype = match ttype {
             b"deposit" => TransactionKind::Deposit,
             b"withdrawal" => TransactionKind::Withdrawal,
             b"dispute" => TransactionKind::Dispute,
@@ -28,15 +35,12 @@ impl Row {
             _ => return Err(Error::CsvUnknownTransactionType),
         };
 
-        let client_id: ClientId = atoi::atoi(buf[type_end + 1..client_id_end].trim_ascii())
-            .ok_or(Error::CsvInvalidClientId)?;
-        let tx_id: TransactionId =
-            atoi::atoi(buf[client_id_end + 1..tx_end].trim_ascii()).ok_or(Error::CsvInvalidTxId)?;
+        let client_id: ClientId = atoi::atoi(client_id).ok_or(Error::CsvInvalidClientId)?;
+        let tx_id: TransactionId = atoi::atoi(tx_id).ok_or(Error::CsvInvalidTxId)?;
 
-        let amount_bytes = buf[tx_end + 1..amount_end].trim_ascii();
         let amount = if ttype.has_amount() {
-            Amount::parse(amount_bytes).ok_or(Error::CsvInvalidAmount)?
-        } else if !amount_bytes.is_empty() {
+            Amount::parse(amount).ok_or(Error::CsvInvalidAmount)?
+        } else if !amount.is_empty() {
             return Err(Error::CsvUnexpectedAmount);
         } else {
             Amount::zero()
@@ -60,6 +64,19 @@ mod tests {
     fn test_parse() {
         assert_eq!(
             Row::parse(b"deposit, 1, 1, 1.0").unwrap(),
+            Row {
+                client_id: 1,
+                transaction: Transaction {
+                    kind: crate::accounts::TransactionKind::Deposit,
+                    id: 1,
+                    amount: Amount::parse(b"1.0").unwrap()
+                }
+            }
+        );
+
+        // extra whitespace
+        assert_eq!(
+            Row::parse(b"    deposit   ,  1   , 1   , 1.0   ").unwrap(),
             Row {
                 client_id: 1,
                 transaction: Transaction {
@@ -120,6 +137,18 @@ mod tests {
         assert!(matches!(
             Row::parse(b"").unwrap_err(),
             Error::CsvMissingColumn
+        ));
+        assert!(matches!(
+            Row::parse(b",,").unwrap_err(),
+            Error::CsvMissingColumn
+        ));
+        assert!(matches!(
+            Row::parse(b",,,,,,").unwrap_err(),
+            Error::CsvUnknownTransactionType
+        ));
+        assert!(matches!(
+            Row::parse(b",,,").unwrap_err(),
+            Error::CsvUnknownTransactionType
         ));
         assert!(matches!(
             Row::parse(b"deposit,1,1").unwrap_err(),
