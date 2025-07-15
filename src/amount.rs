@@ -33,6 +33,11 @@ impl Amount {
             return None;
         }
         let (whole, size) = u64::from_radix_10_checked(bytes);
+        if size == 0 {
+            // We don't support ".1" notation explicitly. We could though, but let's make it stricter
+            // just in case - Rust's parser does the same.
+            return None;
+        }
         let whole = whole?.checked_mul(PLACES_MOD)?;
         match bytes.get(size).copied() {
             Some(b'.') => {
@@ -96,6 +101,7 @@ mod tests {
         assert_eq!(Amount::parse(b"1844674407370955.1616"), None);
 
         // invalid
+        assert_eq!(Amount::parse(b".1"), None);
         assert_eq!(Amount::parse(b"f"), None);
         assert_eq!(Amount::parse(b"1f"), None);
         assert_eq!(Amount::parse(b"1.f"), None);
