@@ -1,0 +1,11 @@
+[package]
+name = "payengine"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+atoi = "2.0.0"
+memchr = "2.7.5"
+thiserror = "2.0.12"
+tracing = "0.1.41"
+tracing-subscriber = "0.3.19"
