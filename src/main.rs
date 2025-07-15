@@ -13,14 +13,14 @@ fn main() {
     let mut file = BufReader::new(file);
 
     let mut buf = Vec::<u8>::new();
-
     let mut db = ClientsDatabase::default();
 
-    // skip header
+    // skip header. Ignore parsing it either, assume it has fixed format.
     let _ = file
         .read_until(b'\n', &mut buf)
         .expect("error reading CSV header");
 
+    // Parse and process all the rows.
     loop {
         buf.clear();
         let sz = file.read_until(b'\n', &mut buf).expect("error reading");
@@ -40,8 +40,8 @@ fn main() {
         }
     }
 
+    // Print all client accounts
     println!("client, available, held, total, locked");
-
     for (client_id, account) in db.iter() {
         let available = account.available_for_withdrawal();
         let held = account.held();

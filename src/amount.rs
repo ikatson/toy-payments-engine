@@ -4,6 +4,7 @@ use atoi::FromRadix10Checked;
 const PLACES: usize = 4;
 const PLACES_MOD: u64 = 10u64.pow(PLACES as u32);
 
+/// A decimal amount, stores both whole and fractional part in a u64.
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq, PartialOrd, Ord)]
 pub struct Amount(u64);
 

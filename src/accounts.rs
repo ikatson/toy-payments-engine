@@ -76,6 +76,8 @@ impl Account {
         Ok(deposit_idx)
     }
 
+    /// Process the transaction and update the account if successful.
+    /// If an error is returned, no modification was made to internal state.
     pub fn process(&mut self, t: Transaction) -> Result<(), crate::Error> {
         if self.frozen {
             return Err(Error::AccountFrozen);
