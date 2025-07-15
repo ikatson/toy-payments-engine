@@ -38,6 +38,9 @@ pub struct Account {
     // We only store deposits as only deposits can be disputed (this isn't clearly specified but can
     // be deduced from the description of dispute section).
     // Stored in TXID order for binary search.
+    //
+    // We could store other transactions to detect duplicate transaction IDs. However for the toy implementation
+    // this would be overkill and would decrease perf just to detect one edge case.
     deposits: Vec<Deposit>,
     total: Amount,
     // Held can be greater than total, in case there's a transaction under dispute
@@ -181,6 +184,7 @@ impl ClientsDatabase {
 #[cfg(test)]
 mod tests {
     use crate::{
+        Error,
         accounts::{Account, Transaction, TransactionKind::*},
         amount::Amount,
     };
@@ -258,6 +262,7 @@ mod tests {
         assert_eq!(acc.held(), amount("3"));
         assert_eq!(acc.available_for_withdrawal(), amount("8.5"));
 
+        // Chargeback should freeze the account and make funds available for withdrawal 0.
         acc.process(Transaction {
             kind: Chargeback,
             id: 1,
@@ -268,5 +273,115 @@ mod tests {
         assert_eq!(acc.held(), amount("0"));
         assert_eq!(acc.available_for_withdrawal(), amount("0"));
         assert!(acc.frozen);
+    }
+
+    #[test]
+    fn test_edge_case_chargeback_would_go_negative() {
+        // Deposit 5
+        let mut acc = Account::default();
+        acc.process(Transaction {
+            kind: Deposit,
+            id: 0,
+            amount: amount("5"),
+        })
+        .unwrap();
+        assert_eq!(acc.total(), amount("5"));
+        assert_eq!(acc.held(), amount("0"));
+        assert_eq!(acc.available_for_withdrawal(), amount("5"));
+
+        // Withdraw 2
+        acc.process(Transaction {
+            kind: Withdrawal,
+            id: 1,
+            amount: amount("2"),
+        })
+        .unwrap();
+        assert_eq!(acc.total(), amount("3"));
+        assert_eq!(acc.held(), amount("0"));
+        assert_eq!(acc.available_for_withdrawal(), amount("3"));
+
+        // Dispute the initial deposit. This will be resolved below.
+        acc.process(Transaction {
+            kind: Dispute,
+            id: 0,
+            amount: Amount::zero(),
+        })
+        .unwrap();
+        assert_eq!(acc.total(), amount("3"));
+        assert_eq!(acc.held(), amount("5"));
+        assert_eq!(acc.available_for_withdrawal(), amount("0"));
+
+        // Resolve it. It should release the funds.
+        acc.process(Transaction {
+            kind: Resolve,
+            id: 0,
+            amount: Amount::zero(),
+        })
+        .unwrap();
+        assert_eq!(acc.total(), amount("3"));
+        assert_eq!(acc.held(), amount("0"));
+        assert_eq!(acc.available_for_withdrawal(), amount("3"));
+
+        // Dispute again. Charging it back would make the account go negative.
+        // Instead of going negative we set it to 0 and freeze to simplify the toy implementation.
+        acc.process(Transaction {
+            kind: Dispute,
+            id: 0,
+            amount: Amount::zero(),
+        })
+        .unwrap();
+        assert_eq!(acc.total(), amount("3"));
+        assert_eq!(acc.held(), amount("5"));
+        assert_eq!(acc.available_for_withdrawal(), amount("0"));
+
+        acc.process(Transaction {
+            kind: Chargeback,
+            id: 0,
+            amount: Amount::zero(),
+        })
+        .unwrap();
+        assert_eq!(acc.total(), amount("0"));
+        assert_eq!(acc.held(), amount("0"));
+        assert_eq!(acc.available_for_withdrawal(), amount("0"));
+        assert!(acc.frozen);
+    }
+
+    #[test]
+    fn test_withdraw_more_than_available() {
+        let mut acc = Account::default();
+        assert!(matches!(
+            acc.process(Transaction {
+                kind: Withdrawal,
+                id: 0,
+                amount: amount("1")
+            })
+            .unwrap_err(),
+            Error::WithdrawOverflow
+        ));
+
+        acc.process(Transaction {
+            kind: Deposit,
+            id: 0,
+            amount: amount("5"),
+        })
+        .unwrap();
+        assert!(matches!(
+            acc.process(Transaction {
+                kind: Withdrawal,
+                id: 1,
+                amount: amount("6")
+            })
+            .unwrap_err(),
+            Error::WithdrawOverflow
+        ));
+
+        assert!(
+            acc.process(Transaction {
+                kind: Withdrawal,
+                id: 1,
+                amount: amount("5")
+            })
+            .is_ok(),
+        );
     }
 }
